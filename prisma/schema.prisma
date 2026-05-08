@@ -10,6 +10,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AiSummaryStatus {
+  NOT_APPLICABLE
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 model Thought {
   id        String   @id @default(cuid())
   title     String
@@ -21,12 +29,14 @@ model Thought {
 }
 
 model ThoughtVersion {
-  id         String   @id @default(cuid())
-  thoughtId  String
-  content    String
-  createdAt  DateTime @default(now())
-  aiSummary  String?
-  aiTags     String[]
+  id                    String           @id @default(cuid())
+  thoughtId             String
+  content               String
+  createdAt             DateTime         @default(now())
+  aiSummary             String?
+  aiTags                String[]
+  aiSummaryStatus       AiSummaryStatus  @default(NOT_APPLICABLE)
+  aiSummaryErrorMessage String?
   
   thought    Thought      @relation(fields: [thoughtId], references: [id], onDelete: Cascade)
   diffsFrom  ThoughtDiff[] @relation("FromVersion")

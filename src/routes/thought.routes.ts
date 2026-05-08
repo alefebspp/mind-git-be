@@ -9,6 +9,98 @@ import { ThoughtVersionService } from "@/feature/thought-version/service/thought
 import { ThoughtVersionController } from "@/feature/thought-version/controller/thought-version.controller";
 import { generateAiSummary } from "@/feature/thought-version/service/thought-version-ai.service";
 
+const thoughtVersionResponseProperties = {
+  id: { type: "string" },
+  thoughtId: { type: "string" },
+  content: { type: "string" },
+  createdAt: {
+    type: "string",
+    format: "date-time",
+  },
+  aiSummary: {
+    type: "string",
+    nullable: true,
+  },
+  aiTags: {
+    type: "array",
+    items: { type: "string" },
+  },
+  aiSummaryStatus: {
+    type: "string",
+    enum: [
+      "NOT_APPLICABLE",
+      "PENDING",
+      "PROCESSING",
+      "COMPLETED",
+      "FAILED",
+    ],
+    description:
+      "Lifecycle of AI-generated summary for this version (relative to predecessor diff when applicable).",
+  },
+  aiSummaryErrorMessage: {
+    type: "string",
+    nullable: true,
+    description:
+      "Optional sanitized failure detail when aiSummaryStatus is FAILED.",
+  },
+};
+
+const errorResponses = {
+  400: {
+    description: "Validation error.",
+    type: "object",
+    properties: {
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+        },
+      },
+    },
+  },
+  404: {
+    description: "Resource not found.",
+    type: "object",
+    properties: {
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+        },
+      },
+    },
+  },
+  422: {
+    description:
+      "Request cannot be processed (e.g. AI summary not applicable or diff missing).",
+    type: "object",
+    properties: {
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+        },
+      },
+    },
+  },
+  500: {
+    description: "Internal server error.",
+    type: "object",
+    properties: {
+      error: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          message: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
 export default async function thoughtRoutes(fastify: FastifyInstance) {
   const prisma = new PrismaClient();
   const thoughtRepository = new PrismaThoughtRepository(prisma);
@@ -63,14 +155,7 @@ export default async function thoughtRoutes(fastify: FastifyInstance) {
                 type: "array",
                 items: {
                   type: "object",
-                  properties: {
-                    id: { type: "string" },
-                    thoughtId: { type: "string" },
-                    content: { type: "string" },
-                    createdAt: { type: "string", format: "date-time" },
-                    aiSummary: { type: "string", nullable: true },
-                    aiTags: { type: "array", items: { type: "string" } },
-                  },
+                  properties: thoughtVersionResponseProperties,
                 },
               },
               pagination: {
@@ -84,32 +169,8 @@ export default async function thoughtRoutes(fastify: FastifyInstance) {
               },
             },
           },
-          400: {
-            description: "Validation error.",
-            type: "object",
-            properties: {
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
-            },
-          },
-          500: {
-            description: "Internal server error.",
-            type: "object",
-            properties: {
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
-            },
-          },
+          400: errorResponses[400],
+          500: errorResponses[500],
         },
       },
     },
@@ -220,74 +281,58 @@ export default async function thoughtRoutes(fastify: FastifyInstance) {
             properties: {
               data: {
                 type: "object",
-                properties: {
-                  id: { type: "string" },
-                  thoughtId: {
-                    type: "string",
-                  },
-                  content: {
-                    type: "string",
-                  },
-                  createdAt: {
-                    type: "string",
-                    format: "date-time",
-                  },
-                  aiSummary: {
-                    type: "string",
-                    nullable: true,
-                  },
-                  aiTags: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                },
+                properties: thoughtVersionResponseProperties,
               },
             },
           },
-          400: {
-            description: "Validation error.",
-            type: "object",
-            properties: {
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
-            },
-          },
-          404: {
-            description: "Thought not found.",
-            type: "object",
-            properties: {
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
-            },
-          },
-          500: {
-            description: "Internal server error.",
-            type: "object",
-            properties: {
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string" },
-                  message: { type: "string" },
-                },
-              },
-            },
-          },
+          400: errorResponses[400],
+          404: errorResponses[404],
+          500: errorResponses[500],
         },
       },
     },
     async (request, reply) => {
       await thoughtVersionController.create(request, reply);
+    }
+  );
+
+  fastify.post(
+    "/:thoughtId/versions/:versionId/ai-summary",
+    {
+      schema: {
+        tags: ["Thought Versions"],
+        summary: "Retry AI summary for a thought version",
+        description:
+          "Regenerates the AI summary using the stored diff for this version (toVersionId). Returns 200 with existing data when the summary is already COMPLETED (idempotent).",
+        params: {
+          type: "object",
+          required: ["thoughtId", "versionId"],
+          properties: {
+            thoughtId: { type: "string" },
+            versionId: { type: "string" },
+          },
+        },
+        response: {
+          200: {
+            description:
+              "Summary regenerated, failed state persisted, or existing completed version returned.",
+            type: "object",
+            properties: {
+              data: {
+                type: "object",
+                properties: thoughtVersionResponseProperties,
+              },
+            },
+          },
+          400: errorResponses[400],
+          404: errorResponses[404],
+          422: errorResponses[422],
+          500: errorResponses[500],
+        },
+      },
+    },
+    async (request, reply) => {
+      await thoughtVersionController.retryAiSummary(request, reply);
     }
   );
 }

@@ -10,6 +10,11 @@ const thoughtIdSchema = z.object({
   thoughtId: z.string(),
 });
 
+const retryAiSummaryParamsSchema = z.object({
+  thoughtId: z.string(),
+  versionId: z.string(),
+});
+
 const listThoughtVersionsQuerySchema = z.object({
   thoughtId: z.string().optional(),
   content: z.string().optional(),
@@ -35,6 +40,21 @@ export class ThoughtVersionController {
     const thoughtVersion = await this.thoughtVersionService.create(
       thoughtId,
       body
+    );
+
+    reply.status(200).send({ data: thoughtVersion });
+  }
+
+  async retryAiSummary(
+    request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> {
+    const { thoughtId, versionId } =
+      retryAiSummaryParamsSchema.parse(request.params);
+
+    const thoughtVersion = await this.thoughtVersionService.retryAiSummary(
+      thoughtId,
+      versionId
     );
 
     reply.status(200).send({ data: thoughtVersion });

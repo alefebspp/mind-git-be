@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { FastifyRequest, FastifyReply } from "fastify";
 import { ThoughtVersionController } from "@/feature/thought-version/controller/thought-version.controller";
 import { ThoughtVersionService } from "@/feature/thought-version/service/thought-version.service";
-import { ThoughtVersion } from "@/feature/thought-version/thought-version.model";
+import {
+  AiSummaryStatus,
+  ThoughtVersion,
+} from "@/feature/thought-version/thought-version.model";
 import { AppError } from "@/common/errors/app-error";
 import { ZodError } from "zod";
 
@@ -16,6 +19,7 @@ describe("ThoughtVersionController", () => {
     mockThoughtVersionService = {
       create: vi.fn(),
       list: vi.fn(),
+      retryAiSummary: vi.fn(),
     } as unknown as ThoughtVersionService;
 
     thoughtVersionController = new ThoughtVersionController(
@@ -47,6 +51,8 @@ describe("ThoughtVersionController", () => {
         createdAt: new Date(),
         aiSummary: null,
         aiTags: [],
+        aiSummaryStatus: AiSummaryStatus.COMPLETED,
+        aiSummaryErrorMessage: null,
       };
 
       mockRequest.params = { thoughtId };
@@ -147,6 +153,8 @@ describe("ThoughtVersionController", () => {
             createdAt,
             aiSummary: null,
             aiTags: [],
+            aiSummaryStatus: AiSummaryStatus.NOT_APPLICABLE,
+            aiSummaryErrorMessage: null,
           },
         ],
         pagination: {
@@ -188,6 +196,60 @@ describe("ThoughtVersionController", () => {
           mockReply as FastifyReply
         )
       ).rejects.toThrow(ZodError);
+    });
+  });
+
+  describe("retryAiSummary", () => {
+    it("delegates to service with params and responds 200", async () => {
+      const payload: ThoughtVersion = {
+        id: "v2",
+        thoughtId: "t1",
+        content: "c",
+        createdAt: new Date(),
+        aiSummary: "s",
+        aiTags: [],
+        aiSummaryStatus: AiSummaryStatus.COMPLETED,
+        aiSummaryErrorMessage: null,
+      };
+      mockRequest.params = { thoughtId: "t1", versionId: "v2" };
+      vi.mocked(mockThoughtVersionService.retryAiSummary).mockResolvedValue(
+        payload
+      );
+
+      await thoughtVersionController.retryAiSummary(
+        mockRequest as FastifyRequest,
+        mockReply as FastifyReply
+      );
+
+      expect(mockThoughtVersionService.retryAiSummary).toHaveBeenCalledWith(
+        "t1",
+        "v2"
+      );
+      expect(mockReply.status).toHaveBeenCalledWith(200);
+      expect(mockReply.send).toHaveBeenCalledWith({ data: payload });
+    });
+
+    it("throws ZodError when params are incomplete", async () => {
+      mockRequest.params = { thoughtId: "t1" };
+      await expect(
+        thoughtVersionController.retryAiSummary(
+          mockRequest as FastifyRequest,
+          mockReply as FastifyReply
+        )
+      ).rejects.toThrow(ZodError);
+    });
+
+    it("propagates AppError from service", async () => {
+      mockRequest.params = { thoughtId: "t1", versionId: "v9" };
+      vi.mocked(mockThoughtVersionService.retryAiSummary).mockRejectedValue(
+        AppError.unprocessableEntity("bad")
+      );
+      await expect(
+        thoughtVersionController.retryAiSummary(
+          mockRequest as FastifyRequest,
+          mockReply as FastifyReply
+        )
+      ).rejects.toThrow(AppError);
     });
   });
 });
