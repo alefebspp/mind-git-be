@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { ThoughtVersion } from "@/feature/thought-version/thought-version.model";
+import { ListThoughtVersionsFilters } from "@/feature/thought-version/thought-version.types";
 import { ThoughtVersionRepository } from "./thought-version.repository";
 
 export class PrismaThoughtVersionRepository
@@ -33,6 +34,30 @@ export class PrismaThoughtVersionRepository
     });
 
     return thoughtVersion;
+  }
+
+  async list(filters: ListThoughtVersionsFilters): Promise<{
+    data: ThoughtVersion[];
+    total: number;
+  }> {
+    const where = {
+      ...(filters.thoughtId ? { thoughtId: filters.thoughtId } : {}),
+      ...(filters.content
+        ? { content: { contains: filters.content, mode: "insensitive" as const } }
+        : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.thoughtVersion.findMany({
+        where,
+        skip: (filters.page - 1) * filters.limit,
+        take: filters.limit,
+        orderBy: { [filters.orderBy]: filters.orderDirection },
+      }),
+      this.prisma.thoughtVersion.count({ where }),
+    ]);
+
+    return { data, total };
   }
 
   async create(data: {

@@ -33,6 +33,7 @@ describe("ThoughtVersionService", () => {
       findById: vi.fn(),
       findByThoughtId: vi.fn(),
       findLatestByThoughtId: vi.fn(),
+      list: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -233,6 +234,55 @@ describe("ThoughtVersionService", () => {
       expect(mockThoughtDiffRepository.create).toHaveBeenCalled();
       expect(mockGenerateAiSummary).toHaveBeenCalled();
       expect(mockThoughtVersionRepository.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("list", () => {
+    it("should list thought versions with pagination metadata", async () => {
+      const createdAt = new Date();
+      const filters = {
+        page: 1,
+        limit: 2,
+        orderBy: "createdAt" as const,
+        orderDirection: "desc" as const,
+      };
+
+      const versions: ThoughtVersion[] = [
+        {
+          id: "version-1",
+          thoughtId: "thought-1",
+          content: "First content",
+          createdAt,
+          aiSummary: null,
+          aiTags: [],
+        },
+        {
+          id: "version-2",
+          thoughtId: "thought-2",
+          content: "Second content",
+          createdAt,
+          aiSummary: null,
+          aiTags: [],
+        },
+      ];
+
+      vi.mocked(mockThoughtVersionRepository.list).mockResolvedValue({
+        data: versions,
+        total: 5,
+      });
+
+      const result = await thoughtVersionService.list(filters);
+
+      expect(mockThoughtVersionRepository.list).toHaveBeenCalledWith(filters);
+      expect(result).toEqual({
+        data: versions,
+        pagination: {
+          page: 1,
+          limit: 2,
+          total: 5,
+          totalPages: 3,
+        },
+      });
     });
   });
 });

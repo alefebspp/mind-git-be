@@ -5,6 +5,8 @@ import { ThoughtDiffRepository } from "@/feature/thought-diff/repository/thought
 import {
   CreateThoughtVersionData,
   GenerateAiSummary,
+  ListThoughtVersionsFilters,
+  PaginatedThoughtVersions,
 } from "@/feature/thought-version/thought-version.types";
 import { ThoughtRepository } from "@/feature/thought/repository/thought.repository";
 import { AppError } from "@/common/errors/app-error";
@@ -16,6 +18,23 @@ export class ThoughtVersionService {
     private thoughtDiffRepository: ThoughtDiffRepository,
     private generateAiSummary: GenerateAiSummary
   ) {}
+
+  async list(
+    filters: ListThoughtVersionsFilters
+  ): Promise<PaginatedThoughtVersions> {
+    const { data, total } = await this.thoughtVersionRepository.list(filters);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / filters.limit);
+
+    return {
+      data,
+      pagination: {
+        page: filters.page,
+        limit: filters.limit,
+        total,
+        totalPages,
+      },
+    };
+  }
 
   async create(
     thoughtId: string,

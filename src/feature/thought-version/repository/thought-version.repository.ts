@@ -1,9 +1,14 @@
 import { ThoughtVersion } from "@/feature/thought-version/thought-version.model";
+import { ListThoughtVersionsFilters } from "@/feature/thought-version/thought-version.types";
 
 export interface ThoughtVersionRepository {
   findById(id: string): Promise<ThoughtVersion | null>;
   findByThoughtId(thoughtId: string): Promise<ThoughtVersion[]>;
   findLatestByThoughtId(thoughtId: string): Promise<ThoughtVersion | null>;
+  list(filters: ListThoughtVersionsFilters): Promise<{
+    data: ThoughtVersion[];
+    total: number;
+  }>;
   create(data: {
     thoughtId: string;
     content: string;

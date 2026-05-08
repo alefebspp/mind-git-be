@@ -27,11 +27,267 @@ export default async function thoughtRoutes(fastify: FastifyInstance) {
     thoughtVersionService
   );
 
-  fastify.post("/", async (request, reply) => {
-    await thoughtController.create(request, reply);
-  });
+  fastify.get(
+    "/versions",
+    {
+      schema: {
+        tags: ["Thought Versions"],
+        summary: "List thought versions",
+        description:
+          "Lists all thought versions with pagination, ordering and optional filters by thoughtId and content.",
+        querystring: {
+          type: "object",
+          properties: {
+            thoughtId: { type: "string" },
+            content: { type: "string" },
+            page: { type: "integer", minimum: 1, default: 1 },
+            limit: { type: "integer", minimum: 1, maximum: 100, default: 10 },
+            orderBy: {
+              type: "string",
+              enum: ["createdAt", "content"],
+              default: "createdAt",
+            },
+            orderDirection: {
+              type: "string",
+              enum: ["asc", "desc"],
+              default: "desc",
+            },
+          },
+        },
+        response: {
+          200: {
+            description: "Thought versions listed successfully.",
+            type: "object",
+            properties: {
+              data: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    thoughtId: { type: "string" },
+                    content: { type: "string" },
+                    createdAt: { type: "string", format: "date-time" },
+                    aiSummary: { type: "string", nullable: true },
+                    aiTags: { type: "array", items: { type: "string" } },
+                  },
+                },
+              },
+              pagination: {
+                type: "object",
+                properties: {
+                  page: { type: "integer" },
+                  limit: { type: "integer" },
+                  total: { type: "integer" },
+                  totalPages: { type: "integer" },
+                },
+              },
+            },
+          },
+          400: {
+            description: "Validation error.",
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            description: "Internal server error.",
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      await thoughtVersionController.list(request, reply);
+    }
+  );
 
-  fastify.post("/:thoughtId/versions", async (request, reply) => {
-    await thoughtVersionController.create(request, reply);
-  });
+  fastify.post(
+    "/",
+    {
+      schema: {
+        tags: ["Thoughts"],
+        summary: "Create thought",
+        description: "Creates a new thought.",
+        body: {
+          type: "object",
+          required: ["content"],
+          properties: {
+            title: { type: "string" },
+            content: {
+              type: "string",
+            },
+          },
+        },
+        response: {
+          200: {
+            description: "Thought created successfully.",
+            type: "object",
+            properties: {
+              data: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  title: { type: "string" },
+                  createdAt: {
+                    type: "string",
+                    format: "date-time",
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: "Validation error.",
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            description: "Internal server error.",
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      await thoughtController.create(request, reply);
+    }
+  );
+
+  fastify.post(
+    "/:thoughtId/versions",
+    {
+      schema: {
+        tags: ["Thought Versions"],
+        summary: "Create thought version",
+        description:
+          "Creates a new version for a thought and computes diff metadata from the previous version.",
+        params: {
+          type: "object",
+          required: ["thoughtId"],
+          properties: {
+            thoughtId: {
+              type: "string",
+            },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["content"],
+          properties: {
+            content: {
+              type: "string",
+            },
+          },
+        },
+        response: {
+          200: {
+            description: "Thought version created successfully.",
+            type: "object",
+            properties: {
+              data: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  thoughtId: {
+                    type: "string",
+                  },
+                  content: {
+                    type: "string",
+                  },
+                  createdAt: {
+                    type: "string",
+                    format: "date-time",
+                  },
+                  aiSummary: {
+                    type: "string",
+                    nullable: true,
+                  },
+                  aiTags: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          400: {
+            description: "Validation error.",
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          404: {
+            description: "Thought not found.",
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+          500: {
+            description: "Internal server error.",
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      await thoughtVersionController.create(request, reply);
+    }
+  );
 }
