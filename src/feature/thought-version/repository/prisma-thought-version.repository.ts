@@ -1,7 +1,35 @@
+import type { AiSummaryStatus as PrismaAiSummaryStatus } from "@prisma/client";
 import { PrismaClient } from "@prisma/client";
-import { ThoughtVersion } from "@/feature/thought-version/thought-version.model";
+import {
+  AiSummaryStatus,
+  ThoughtVersion,
+} from "@/feature/thought-version/thought-version.model";
 import { ListThoughtVersionsFilters } from "@/feature/thought-version/thought-version.types";
 import { ThoughtVersionRepository } from "./thought-version.repository";
+
+type PrismaThoughtVersionRow = {
+  id: string;
+  thoughtId: string;
+  content: string;
+  createdAt: Date;
+  aiSummary: string | null;
+  aiTags: string[];
+  aiSummaryStatus: PrismaAiSummaryStatus;
+  aiSummaryErrorMessage: string | null;
+};
+
+function toPrismaAiSummaryStatus(
+  status: AiSummaryStatus
+): PrismaAiSummaryStatus {
+  return status as unknown as PrismaAiSummaryStatus;
+}
+
+function toDomainThoughtVersion(row: PrismaThoughtVersionRow): ThoughtVersion {
+  return {
+    ...row,
+    aiSummaryStatus: row.aiSummaryStatus as AiSummaryStatus,
+  };
+}
 
 export class PrismaThoughtVersionRepository
   implements ThoughtVersionRepository
@@ -13,7 +41,9 @@ export class PrismaThoughtVersionRepository
       where: { id },
     });
 
-    return thoughtVersion;
+    return thoughtVersion
+      ? toDomainThoughtVersion(thoughtVersion as PrismaThoughtVersionRow)
+      : null;
   }
 
   async findByThoughtId(thoughtId: string): Promise<ThoughtVersion[]> {
@@ -22,7 +52,9 @@ export class PrismaThoughtVersionRepository
       orderBy: { createdAt: "desc" },
     });
 
-    return thoughtVersions;
+    return thoughtVersions.map((v) =>
+      toDomainThoughtVersion(v as PrismaThoughtVersionRow)
+    );
   }
 
   async findLatestByThoughtId(
@@ -33,7 +65,9 @@ export class PrismaThoughtVersionRepository
       orderBy: { createdAt: "desc" },
     });
 
-    return thoughtVersion;
+    return thoughtVersion
+      ? toDomainThoughtVersion(thoughtVersion as PrismaThoughtVersionRow)
+      : null;
   }
 
   async list(filters: ListThoughtVersionsFilters): Promise<{
@@ -47,7 +81,7 @@ export class PrismaThoughtVersionRepository
         : {}),
     };
 
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.thoughtVersion.findMany({
         where,
         skip: (filters.page - 1) * filters.limit,
@@ -57,6 +91,9 @@ export class PrismaThoughtVersionRepository
       this.prisma.thoughtVersion.count({ where }),
     ]);
 
+    const data = rows.map((row) =>
+      toDomainThoughtVersion(row as PrismaThoughtVersionRow)
+    );
     return { data, total };
   }
 
@@ -65,6 +102,7 @@ export class PrismaThoughtVersionRepository
     content: string;
     aiSummary?: string;
     aiTags?: string[];
+    aiSummaryStatus?: AiSummaryStatus;
   }): Promise<ThoughtVersion> {
     const thoughtVersion = await this.prisma.thoughtVersion.create({
       data: {
@@ -72,18 +110,23 @@ export class PrismaThoughtVersionRepository
         content: data.content,
         ...(data.aiSummary && { aiSummary: data.aiSummary }),
         ...(data.aiTags && { aiTags: data.aiTags }),
+        ...(data.aiSummaryStatus !== undefined && {
+          aiSummaryStatus: toPrismaAiSummaryStatus(data.aiSummaryStatus),
+        }),
       },
     });
 
-    return thoughtVersion;
+    return toDomainThoughtVersion(thoughtVersion as PrismaThoughtVersionRow);
   }
 
   async update(
     id: string,
     data: {
       content?: string;
-      aiSummary?: string;
+      aiSummary?: string | null;
       aiTags?: string[];
+      aiSummaryStatus?: AiSummaryStatus;
+      aiSummaryErrorMessage?: string | null;
     }
   ): Promise<ThoughtVersion> {
     const thoughtVersion = await this.prisma.thoughtVersion.update({
@@ -92,10 +135,16 @@ export class PrismaThoughtVersionRepository
         ...(data.content && { content: data.content }),
         ...(data.aiSummary !== undefined && { aiSummary: data.aiSummary }),
         ...(data.aiTags && { aiTags: data.aiTags }),
+        ...(data.aiSummaryStatus !== undefined && {
+          aiSummaryStatus: toPrismaAiSummaryStatus(data.aiSummaryStatus),
+        }),
+        ...(data.aiSummaryErrorMessage !== undefined && {
+          aiSummaryErrorMessage: data.aiSummaryErrorMessage,
+        }),
       },
     });
 
-    return thoughtVersion;
+    return toDomainThoughtVersion(thoughtVersion as PrismaThoughtVersionRow);
   }
 
   async delete(id: string): Promise<void> {

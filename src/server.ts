@@ -1,8 +1,9 @@
 import "dotenv/config";
 import fastify, {
+  FastifyError,
   FastifyInstance,
-  FastifyRequest,
   FastifyReply,
+  FastifyRequest,
 } from "fastify";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
@@ -36,6 +37,36 @@ export function build(opts = {}): FastifyInstance {
   // Error handler global
   app.setErrorHandler(
     (error: Error, request: FastifyRequest, reply: FastifyReply) => {
+      const fastifyErr = error as FastifyError;
+      if (
+        fastifyErr.code === "FST_ERR_VALIDATION" &&
+        Array.isArray(fastifyErr.validation)
+      ) {
+        const ctx = fastifyErr.validationContext ?? "request";
+        const details =
+          fastifyErr.validation.length > 0
+            ? fastifyErr.validation.map((issue) => ({
+                field: issue.instancePath
+                  ? issue.instancePath.replace(/^\//, "").replace(/\//g, ".")
+                  : ctx,
+                message: issue.message ?? "Invalid value",
+              }))
+            : [
+                {
+                  field: ctx,
+                  message: fastifyErr.message ?? "Validation error",
+                },
+              ];
+
+        return reply.status(400).send({
+          error: {
+            code: ErrorCode.VALIDATION_ERROR,
+            message: "Validation error",
+            details,
+          },
+        });
+      }
+
       // Tratamento de erros do Zod (validação)
       if (error instanceof ZodError) {
         const errors = error.issues.map((issue) => ({

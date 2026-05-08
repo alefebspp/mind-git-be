@@ -3,6 +3,7 @@ export enum ErrorCode {
   VALIDATION_ERROR = "VALIDATION_ERROR",
   INTERNAL_ERROR = "INTERNAL_ERROR",
   BAD_REQUEST = "BAD_REQUEST",
+  UNPROCESSABLE_ENTITY = "UNPROCESSABLE_ENTITY",
 }
 
 export class AppError extends Error {
@@ -30,6 +31,12 @@ export class AppError extends Error {
 
   static internalError(message: string = "Internal server error"): AppError {
     return new AppError(ErrorCode.INTERNAL_ERROR, message, 500);
+  }
+
+  static unprocessableEntity(
+    message: string = "Unprocessable entity"
+  ): AppError {
+    return new AppError(ErrorCode.UNPROCESSABLE_ENTITY, message, 422);
   }
 }
 

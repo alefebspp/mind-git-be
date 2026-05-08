@@ -1,4 +1,7 @@
-import { ThoughtVersion } from "@/feature/thought-version/thought-version.model";
+import {
+  ThoughtVersion,
+  AiSummaryStatus,
+} from "@/feature/thought-version/thought-version.model";
 import { ListThoughtVersionsFilters } from "@/feature/thought-version/thought-version.types";
 
 export interface ThoughtVersionRepository {
@@ -14,13 +17,16 @@ export interface ThoughtVersionRepository {
     content: string;
     aiSummary?: string;
     aiTags?: string[];
+    aiSummaryStatus?: AiSummaryStatus;
   }): Promise<ThoughtVersion>;
   update(
     id: string,
     data: {
       content?: string;
-      aiSummary?: string;
+      aiSummary?: string | null;
       aiTags?: string[];
+      aiSummaryStatus?: AiSummaryStatus;
+      aiSummaryErrorMessage?: string | null;
     }
   ): Promise<ThoughtVersion>;
   delete(id: string): Promise<void>;
