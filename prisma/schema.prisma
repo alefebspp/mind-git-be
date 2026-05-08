@@ -1,0 +1,52 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Thought {
+  id        String   @id @default(cuid())
+  title     String
+  createdAt DateTime @default(now())
+  
+  versions ThoughtVersion[]
+  
+  @@map("thoughts")
+}
+
+model ThoughtVersion {
+  id         String   @id @default(cuid())
+  thoughtId  String
+  content    String
+  createdAt  DateTime @default(now())
+  aiSummary  String?
+  aiTags     String[]
+  
+  thought    Thought      @relation(fields: [thoughtId], references: [id], onDelete: Cascade)
+  diffsFrom  ThoughtDiff[] @relation("FromVersion")
+  diffsTo    ThoughtDiff[] @relation("ToVersion")
+  
+  @@map("thought_versions")
+}
+
+model ThoughtDiff {
+  id            String   @id @default(cuid())
+  fromVersionId String
+  toVersionId   String
+  addedWords    String[]
+  removedWords  String[]
+  metrics       Json
+  createdAt     DateTime @default(now())
+  
+  fromVersion   ThoughtVersion @relation("FromVersion", fields: [fromVersionId], references: [id], onDelete: Cascade)
+  toVersion     ThoughtVersion @relation("ToVersion", fields: [toVersionId], references: [id], onDelete: Cascade)
+  
+  @@map("thought_diffs")
+}
+
