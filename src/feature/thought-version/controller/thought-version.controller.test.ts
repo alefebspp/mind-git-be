@@ -15,6 +15,7 @@ describe("ThoughtVersionController", () => {
   beforeEach(() => {
     mockThoughtVersionService = {
       create: vi.fn(),
+      list: vi.fn(),
     } as unknown as ThoughtVersionService;
 
     thoughtVersionController = new ThoughtVersionController(
@@ -123,6 +124,70 @@ describe("ThoughtVersionController", () => {
           mockReply as FastifyReply
         )
       ).rejects.toThrow(AppError);
+    });
+  });
+
+  describe("list", () => {
+    it("should list thought versions successfully", async () => {
+      const createdAt = new Date();
+      mockRequest.query = {
+        page: "1",
+        limit: "10",
+        orderBy: "createdAt",
+        orderDirection: "desc",
+        thoughtId: "thought-1",
+      };
+
+      const serviceResponse = {
+        data: [
+          {
+            id: "version-1",
+            thoughtId: "thought-1",
+            content: "content",
+            createdAt,
+            aiSummary: null,
+            aiTags: [],
+          },
+        ],
+        pagination: {
+          page: 1,
+          limit: 10,
+          total: 1,
+          totalPages: 1,
+        },
+      };
+
+      vi.mocked(mockThoughtVersionService.list).mockResolvedValue(
+        serviceResponse
+      );
+
+      await thoughtVersionController.list(
+        mockRequest as FastifyRequest,
+        mockReply as FastifyReply
+      );
+
+      expect(mockThoughtVersionService.list).toHaveBeenCalledWith({
+        page: 1,
+        limit: 10,
+        orderBy: "createdAt",
+        orderDirection: "desc",
+        thoughtId: "thought-1",
+      });
+      expect(mockReply.status).toHaveBeenCalledWith(200);
+      expect(mockReply.send).toHaveBeenCalledWith(serviceResponse);
+    });
+
+    it("should throw ZodError for invalid pagination query", async () => {
+      mockRequest.query = {
+        page: "0",
+      };
+
+      await expect(
+        thoughtVersionController.list(
+          mockRequest as FastifyRequest,
+          mockReply as FastifyReply
+        )
+      ).rejects.toThrow(ZodError);
     });
   });
 });

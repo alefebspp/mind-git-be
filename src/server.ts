@@ -4,12 +4,34 @@ import fastify, {
   FastifyRequest,
   FastifyReply,
 } from "fastify";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import { ZodError } from "zod";
 import thoughtRoutes from "@/routes/thought.routes";
 import { AppError, ErrorCode } from "@/common/errors/app-error";
 
 export function build(opts = {}): FastifyInstance {
   const app = fastify(opts);
+
+  app.register(swagger, {
+    openapi: {
+      info: {
+        title: "Mind Git API",
+        description: "Documentation for Thought and Thought Version endpoints",
+        version: "1.0.0",
+      },
+      servers: [{ url: "http://localhost:3000" }],
+      tags: [{ name: "Thoughts" }, { name: "Thought Versions" }],
+    },
+  });
+
+  app.register(swaggerUi, {
+    routePrefix: "/docs",
+    uiConfig: {
+      docExpansion: "list",
+      deepLinking: false,
+    },
+  });
 
   // Error handler global
   app.setErrorHandler(

@@ -10,8 +10,23 @@ const thoughtIdSchema = z.object({
   thoughtId: z.string(),
 });
 
+const listThoughtVersionsQuerySchema = z.object({
+  thoughtId: z.string().optional(),
+  content: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+  orderBy: z.enum(["createdAt", "content"]).default("createdAt"),
+  orderDirection: z.enum(["asc", "desc"]).default("desc"),
+});
+
 export class ThoughtVersionController {
   constructor(private thoughtVersionService: ThoughtVersionService) {}
+
+  async list(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const query = listThoughtVersionsQuerySchema.parse(request.query);
+    const thoughtVersions = await this.thoughtVersionService.list(query);
+    reply.status(200).send(thoughtVersions);
+  }
 
   async create(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const { thoughtId } = thoughtIdSchema.parse(request.params);
