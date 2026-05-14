@@ -29,5 +29,16 @@ export interface ThoughtVersionRepository {
       aiSummaryErrorMessage?: string | null;
     }
   ): Promise<ThoughtVersion>;
+  updateIfAiSummaryStatusIn(
+    id: string,
+    allowedStatuses: AiSummaryStatus[],
+    data: {
+      content?: string;
+      aiSummary?: string | null;
+      aiTags?: string[];
+      aiSummaryStatus?: AiSummaryStatus;
+      aiSummaryErrorMessage?: string | null;
+    }
+  ): Promise<ThoughtVersion | null>;
   delete(id: string): Promise<void>;
 }

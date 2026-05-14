@@ -7,22 +7,21 @@ import { ThoughtVersionRepository } from "@/feature/thought-version/repository/t
 import { ThoughtDiffRepository } from "@/feature/thought-diff/repository/thought-diff.repository";
 import {
   CreateThoughtVersionData,
-  GenerateAiSummary,
   ListThoughtVersionsFilters,
   PaginatedThoughtVersions,
 } from "@/feature/thought-version/thought-version.types";
 import { ThoughtRepository } from "@/feature/thought/repository/thought.repository";
-import { AppError, ErrorCode } from "@/common/errors/app-error";
-
-const AI_SUMMARY_FAILURE_GENERIC = "AI summary generation failed";
-const AI_SUMMARY_ERROR_MAX_LEN = 500;
+import { AppError } from "@/common/errors/app-error";
+import type { ThoughtVersionCreationRepository } from "@/feature/thought-version/repository/thought-version-creation.repository";
+import type { AiSummaryJobPublisher } from "@/infrastructure/bullmq/ai-summary-job.publisher";
 
 export class ThoughtVersionService {
   constructor(
     private thoughtRepository: ThoughtRepository,
     private thoughtVersionRepository: ThoughtVersionRepository,
     private thoughtDiffRepository: ThoughtDiffRepository,
-    private generateAiSummary: GenerateAiSummary
+    private thoughtVersionCreationRepository: ThoughtVersionCreationRepository,
+    private aiSummaryJobPublisher: AiSummaryJobPublisher
   ) {}
 
   async list(
@@ -59,16 +58,12 @@ export class ThoughtVersionService {
     const lastVersion =
       await this.thoughtVersionRepository.findLatestByThoughtId(thoughtId);
 
-    const newVersion = await this.thoughtVersionRepository.create({
-      thoughtId,
-      content: data.content,
-      aiSummaryStatus: lastVersion
-        ? AiSummaryStatus.PENDING
-        : AiSummaryStatus.NOT_APPLICABLE,
-    });
-
     if (!lastVersion) {
-      return newVersion;
+      return this.thoughtVersionRepository.create({
+        thoughtId,
+        content: data.content,
+        aiSummaryStatus: AiSummaryStatus.NOT_APPLICABLE,
+      });
     }
 
     const wordDiff = diffWords(lastVersion.content, data.content);
@@ -92,40 +87,19 @@ export class ThoughtVersionService {
       totalChanges: addedWords.length + removedWords.length,
     };
 
-    await this.thoughtDiffRepository.create({
-      fromVersionId: lastVersion.id,
-      toVersionId: newVersion.id,
-      addedWords,
-      removedWords,
-      metrics,
-    });
-
-    await this.thoughtVersionRepository.update(newVersion.id, {
-      aiSummaryStatus: AiSummaryStatus.PROCESSING,
-      aiSummaryErrorMessage: null,
-    });
-
-    try {
-      const aiSummary = await this.generateAiSummary(
-        lastVersion.content,
-        data.content,
-        addedWords,
-        removedWords,
-        metrics
+    const { thoughtVersion } =
+      await this.thoughtVersionCreationRepository.createWithDiffAndAiSummaryOutbox(
+        {
+          thoughtId,
+          content: data.content,
+          fromVersionId: lastVersion.id,
+          addedWords,
+          removedWords,
+          metrics,
+        }
       );
 
-      return await this.thoughtVersionRepository.update(newVersion.id, {
-        aiSummary,
-        aiSummaryStatus: AiSummaryStatus.COMPLETED,
-        aiSummaryErrorMessage: null,
-      });
-    } catch (error) {
-      console.error("Error generating AI summary:", error);
-      return await this.thoughtVersionRepository.update(newVersion.id, {
-        aiSummaryStatus: AiSummaryStatus.FAILED,
-        aiSummaryErrorMessage: this.formatAiSummaryFailureMessage(error),
-      });
-    }
+    return thoughtVersion;
   }
 
   async retryAiSummary(
@@ -152,6 +126,12 @@ export class ThoughtVersionService {
       );
     }
 
+    if (version.aiSummaryStatus === AiSummaryStatus.PROCESSING) {
+      throw AppError.unprocessableEntity(
+        "AI summary is already processing for this version"
+      );
+    }
+
     const diffs =
       await this.thoughtDiffRepository.findByToVersionId(versionId);
     const diff = diffs[0];
@@ -170,46 +150,22 @@ export class ThoughtVersionService {
       );
     }
 
-    await this.thoughtVersionRepository.update(versionId, {
-      aiSummaryStatus: AiSummaryStatus.PROCESSING,
-      aiSummaryErrorMessage: null,
-    });
-
-    try {
-      const aiSummary = await this.generateAiSummary(
-        fromVersion.content,
-        version.content,
-        diff.addedWords,
-        diff.removedWords,
-        diff.metrics
-      );
-
-      return await this.thoughtVersionRepository.update(versionId, {
-        aiSummary,
-        aiSummaryStatus: AiSummaryStatus.COMPLETED,
+    if (version.aiSummaryStatus === AiSummaryStatus.FAILED) {
+      await this.thoughtVersionRepository.update(versionId, {
+        aiSummaryStatus: AiSummaryStatus.PENDING,
         aiSummaryErrorMessage: null,
       });
-    } catch (error) {
-      console.error("Error generating AI summary (retry):", error);
-      return await this.thoughtVersionRepository.update(versionId, {
-        aiSummaryStatus: AiSummaryStatus.FAILED,
-        aiSummaryErrorMessage: this.formatAiSummaryFailureMessage(error),
-      });
     }
-  }
 
-  private formatAiSummaryFailureMessage(error: unknown): string {
-    if (error instanceof AppError && error.code === ErrorCode.INTERNAL_ERROR) {
-      return AI_SUMMARY_FAILURE_GENERIC;
-    }
-    if (error instanceof AppError) {
-      const trimmed = error.message.trim().replace(/\s+/g, " ");
-      const truncated =
-        trimmed.length > AI_SUMMARY_ERROR_MAX_LEN
-          ? trimmed.slice(0, AI_SUMMARY_ERROR_MAX_LEN)
-          : trimmed;
-      return truncated || AI_SUMMARY_FAILURE_GENERIC;
-    }
-    return AI_SUMMARY_FAILURE_GENERIC;
+    await this.aiSummaryJobPublisher.enqueue({
+      thoughtId,
+      thoughtVersionId: versionId,
+      diffId: diff.id,
+      intent: "manual",
+    });
+
+    const refreshed =
+      await this.thoughtVersionRepository.findById(versionId);
+    return refreshed!;
   }
 }

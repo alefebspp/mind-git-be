@@ -60,3 +60,31 @@ model ThoughtDiff {
   @@map("thought_diffs")
 }
 
+enum OutboxEventType {
+  AI_SUMMARY_REQUESTED
+  AI_SUMMARY_MANUAL_RETRY
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+model OutboxEvent {
+  id             String             @id @default(cuid())
+  eventType      OutboxEventType
+  aggregateType  String
+  aggregateId    String
+  payload        Json
+  status         OutboxEventStatus  @default(PENDING)
+  attempts       Int                @default(0)
+  nextAttemptAt  DateTime?
+  publishedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([eventType, aggregateId])
+  @@map("outbox_events")
+}

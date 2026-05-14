@@ -51,7 +51,7 @@ describe("ThoughtVersionController", () => {
         createdAt: new Date(),
         aiSummary: null,
         aiTags: [],
-        aiSummaryStatus: AiSummaryStatus.COMPLETED,
+        aiSummaryStatus: AiSummaryStatus.PENDING,
         aiSummaryErrorMessage: null,
       };
 

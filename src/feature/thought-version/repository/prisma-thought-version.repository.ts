@@ -147,6 +147,44 @@ export class PrismaThoughtVersionRepository
     return toDomainThoughtVersion(thoughtVersion as PrismaThoughtVersionRow);
   }
 
+  async updateIfAiSummaryStatusIn(
+    id: string,
+    allowedStatuses: AiSummaryStatus[],
+    data: {
+      content?: string;
+      aiSummary?: string | null;
+      aiTags?: string[];
+      aiSummaryStatus?: AiSummaryStatus;
+      aiSummaryErrorMessage?: string | null;
+    }
+  ): Promise<ThoughtVersion | null> {
+    const result = await this.prisma.thoughtVersion.updateMany({
+      where: {
+        id,
+        aiSummaryStatus: {
+          in: allowedStatuses.map((s) => toPrismaAiSummaryStatus(s)),
+        },
+      },
+      data: {
+        ...(data.content && { content: data.content }),
+        ...(data.aiSummary !== undefined && { aiSummary: data.aiSummary }),
+        ...(data.aiTags && { aiTags: data.aiTags }),
+        ...(data.aiSummaryStatus !== undefined && {
+          aiSummaryStatus: toPrismaAiSummaryStatus(data.aiSummaryStatus),
+        }),
+        ...(data.aiSummaryErrorMessage !== undefined && {
+          aiSummaryErrorMessage: data.aiSummaryErrorMessage,
+        }),
+      },
+    });
+
+    if (result.count === 0) {
+      return null;
+    }
+
+    return this.findById(id);
+  }
+
   async delete(id: string): Promise<void> {
     await this.prisma.thoughtVersion.delete({
       where: { id },
