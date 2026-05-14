@@ -11,13 +11,35 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - url-shortener_postgres_data:/var/lib/postgresql/data
+      - mind-git_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: mind-git-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+      --requirepass redis_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - mind-git_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_password", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
-  url-shortener_postgres_data:
-  url-shortener_redis_data:
+  mind-git_postgres_data:
+  mind-git_redis_data:

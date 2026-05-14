@@ -7,7 +7,10 @@ import { PrismaThoughtVersionRepository } from "@/feature/thought-version/reposi
 import { PrismaThoughtDiffRepository } from "@/feature/thought-diff/repository/prisma-thought-diff.repository";
 import { ThoughtVersionService } from "@/feature/thought-version/service/thought-version.service";
 import { ThoughtVersionController } from "@/feature/thought-version/controller/thought-version.controller";
-import { generateAiSummary } from "@/feature/thought-version/service/thought-version-ai.service";
+import { PrismaThoughtVersionCreationRepository } from "@/feature/thought-version/repository/prisma-thought-version-creation.repository";
+import { createRedisConnection } from "@/infrastructure/bullmq/redis-connection";
+import { createAiSummaryQueue } from "@/infrastructure/bullmq/ai-summary.queue";
+import { AiSummaryJobPublisher } from "@/infrastructure/bullmq/ai-summary-job.publisher";
 
 const thoughtVersionResponseProperties = {
   id: { type: "string" },
@@ -109,15 +112,27 @@ export default async function thoughtRoutes(fastify: FastifyInstance) {
 
   const thoughtVersionRepository = new PrismaThoughtVersionRepository(prisma);
   const thoughtDiffRepository = new PrismaThoughtDiffRepository(prisma);
+  const thoughtVersionCreationRepository =
+    new PrismaThoughtVersionCreationRepository(prisma);
+  const redis = createRedisConnection();
+  const aiSummaryQueue = createAiSummaryQueue(redis);
+  const aiSummaryJobPublisher = new AiSummaryJobPublisher(aiSummaryQueue);
   const thoughtVersionService = new ThoughtVersionService(
     thoughtRepository,
     thoughtVersionRepository,
     thoughtDiffRepository,
-    generateAiSummary
+    thoughtVersionCreationRepository,
+    aiSummaryJobPublisher
   );
   const thoughtVersionController = new ThoughtVersionController(
     thoughtVersionService
   );
+
+  fastify.addHook("onClose", async () => {
+    await aiSummaryQueue.close();
+    await redis.quit();
+    await prisma.$disconnect();
+  });
 
   fastify.get(
     "/versions",
@@ -255,7 +270,7 @@ export default async function thoughtRoutes(fastify: FastifyInstance) {
         tags: ["Thought Versions"],
         summary: "Create thought version",
         description:
-          "Creates a new version for a thought and computes diff metadata from the previous version.",
+          "Creates a new version for a thought and computes diff metadata from the previous version. When a previous version exists, the AI summary is requested asynchronously: the response returns aiSummaryStatus PENDING while a background worker processes the summary.",
         params: {
           type: "object",
           required: ["thoughtId"],
@@ -303,7 +318,7 @@ export default async function thoughtRoutes(fastify: FastifyInstance) {
         tags: ["Thought Versions"],
         summary: "Retry AI summary for a thought version",
         description:
-          "Regenerates the AI summary using the stored diff for this version (toVersionId). Returns 200 with existing data when the summary is already COMPLETED (idempotent).",
+          "Enqueues regeneration of the AI summary using the stored diff for this version (toVersionId). Returns 200 with existing data when the summary is already COMPLETED (idempotent). The HTTP request does not wait for the model; poll the version until aiSummaryStatus becomes COMPLETED or FAILED.",
         params: {
           type: "object",
           required: ["thoughtId", "versionId"],

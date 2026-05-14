@@ -16,6 +16,7 @@ const { mockPrisma } = vi.hoisted(() => ({
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
       delete: vi.fn(),
     },
     thoughtDiff: {
@@ -25,6 +26,11 @@ const { mockPrisma } = vi.hoisted(() => ({
       create: vi.fn(),
       delete: vi.fn(),
     },
+    outboxEvent: {
+      create: vi.fn(),
+    },
+    $transaction: vi.fn(),
+    $disconnect: vi.fn(),
   },
 }));
 
@@ -39,6 +45,26 @@ vi.mock("@prisma/client", async (importOriginal) => {
   };
 });
 
+vi.mock("ioredis", () => ({
+  default: vi.fn().mockImplementation(() => ({
+    duplicate: vi.fn().mockImplementation(() => ({
+      duplicate: vi.fn().mockReturnThis(),
+      quit: vi.fn().mockResolvedValue("OK"),
+    })),
+    quit: vi.fn().mockResolvedValue("OK"),
+  })),
+}));
+
+vi.mock("bullmq", () => ({
+  Queue: vi.fn().mockImplementation(() => ({
+    add: vi.fn().mockResolvedValue(undefined),
+    getJob: vi.fn().mockResolvedValue(null),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+  Worker: vi.fn(),
+  UnrecoverableError: class UnrecoverableError extends Error {},
+}));
+
 import { build } from "@/server";
 
 describe("Thought Routes Integration", () => {
@@ -46,6 +72,10 @@ describe("Thought Routes Integration", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    process.env.REDIS_URL = "redis://127.0.0.1:6379";
+    vi.mocked(mockPrisma.$transaction).mockImplementation((fn) =>
+      fn(mockPrisma as never)
+    );
 
     app = build({});
     await app.ready();

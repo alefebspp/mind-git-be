@@ -10,6 +10,8 @@ import {
 } from "@/feature/thought-version/thought-version.model";
 import { ThoughtDiff } from "@/feature/thought-diff/thought-diff.model";
 import { AppError, ErrorCode } from "@/common/errors/app-error";
+import type { ThoughtVersionCreationRepository } from "@/feature/thought-version/repository/thought-version-creation.repository";
+import type { AiSummaryJobPublisher } from "@/infrastructure/bullmq/ai-summary-job.publisher";
 
 function versionBase(override: Partial<ThoughtVersion>): ThoughtVersion {
   return {
@@ -30,13 +32,8 @@ describe("ThoughtVersionService", () => {
   let mockThoughtRepository: ThoughtRepository;
   let mockThoughtVersionRepository: ThoughtVersionRepository;
   let mockThoughtDiffRepository: ThoughtDiffRepository;
-  let mockGenerateAiSummary: (
-    oldContent: string,
-    newContent: string,
-    addedWords: string[],
-    removedWords: string[],
-    metrics: Record<string, unknown>
-  ) => Promise<string>;
+  let mockThoughtVersionCreationRepository: ThoughtVersionCreationRepository;
+  let mockAiSummaryJobPublisher: AiSummaryJobPublisher;
 
   beforeEach(() => {
     mockThoughtRepository = {
@@ -55,6 +52,7 @@ describe("ThoughtVersionService", () => {
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+      updateIfAiSummaryStatusIn: vi.fn(),
     } as unknown as ThoughtVersionRepository;
 
     mockThoughtDiffRepository = {
@@ -66,13 +64,20 @@ describe("ThoughtVersionService", () => {
       delete: vi.fn(),
     } as unknown as ThoughtDiffRepository;
 
-    mockGenerateAiSummary = vi.fn();
+    mockThoughtVersionCreationRepository = {
+      createWithDiffAndAiSummaryOutbox: vi.fn(),
+    } as unknown as ThoughtVersionCreationRepository;
+
+    mockAiSummaryJobPublisher = {
+      enqueue: vi.fn(),
+    } as unknown as AiSummaryJobPublisher;
 
     thoughtVersionService = new ThoughtVersionService(
       mockThoughtRepository,
       mockThoughtVersionRepository,
       mockThoughtDiffRepository,
-      mockGenerateAiSummary
+      mockThoughtVersionCreationRepository,
+      mockAiSummaryJobPublisher
     );
   });
 
@@ -147,7 +152,7 @@ describe("ThoughtVersionService", () => {
       });
     });
 
-    it("should create version with diff and AI summary", async () => {
+    it("should create version with diff outbox atomically without calling AI", async () => {
       const thoughtId = "thought-1";
       const data = { content: "New version content" };
 
@@ -175,129 +180,33 @@ describe("ThoughtVersionService", () => {
       vi.mocked(
         mockThoughtVersionRepository.findLatestByThoughtId
       ).mockResolvedValue(lastVersion);
-      vi.mocked(mockThoughtVersionRepository.create).mockResolvedValue(
-        newVersion
-      );
-      vi.mocked(mockGenerateAiSummary).mockResolvedValue(
-        "AI generated summary"
-      );
-      vi.mocked(mockThoughtVersionRepository.update).mockImplementation(
-        async (_, updateData) => ({
-          ...newVersion,
-          ...updateData,
-          aiSummary:
-            updateData.aiSummary !== undefined
-              ? updateData.aiSummary
-              : newVersion.aiSummary,
-          aiSummaryStatus:
-            updateData.aiSummaryStatus ?? newVersion.aiSummaryStatus,
-          aiSummaryErrorMessage:
-            updateData.aiSummaryErrorMessage !== undefined
-              ? updateData.aiSummaryErrorMessage
-              : newVersion.aiSummaryErrorMessage,
-        })
-      );
-
-      const result = await thoughtVersionService.create(thoughtId, data);
-
-      expect(result.aiSummary).toBe("AI generated summary");
-      expect(result.aiSummaryStatus).toBe(AiSummaryStatus.COMPLETED);
-      expect(mockThoughtDiffRepository.create).toHaveBeenCalled();
-      expect(mockGenerateAiSummary).toHaveBeenCalled();
-      expect(mockThoughtVersionRepository.create).toHaveBeenCalledWith({
-        thoughtId,
-        content: data.content,
-        aiSummaryStatus: AiSummaryStatus.PENDING,
-      });
-      expect(mockThoughtVersionRepository.update).toHaveBeenNthCalledWith(
-        1,
-        newVersion.id,
-        {
-          aiSummaryStatus: AiSummaryStatus.PROCESSING,
-          aiSummaryErrorMessage: null,
-        }
-      );
-      expect(mockThoughtVersionRepository.update).toHaveBeenNthCalledWith(
-        2,
-        newVersion.id,
-        {
-          aiSummary: "AI generated summary",
-          aiSummaryStatus: AiSummaryStatus.COMPLETED,
-          aiSummaryErrorMessage: null,
-        }
-      );
-    });
-
-    it("should persist FAILED status when AI generation fails", async () => {
-      const thoughtId = "thought-1";
-      const data = { content: "New version content" };
-
-      const thought: Thought = {
-        id: thoughtId,
-        title: "Test Thought",
-        createdAt: new Date(),
-      };
-
-      const lastVersion = versionBase({
-        id: "version-1",
-        thoughtId,
-        content: "Old version content",
-      });
-
-      const newVersion = versionBase({
-        id: "version-2",
-        thoughtId,
-        content: data.content,
-        aiSummaryStatus: AiSummaryStatus.PENDING,
-      });
-
-      vi.mocked(mockThoughtRepository.findById).mockResolvedValue(thought);
       vi.mocked(
-        mockThoughtVersionRepository.findLatestByThoughtId
-      ).mockResolvedValue(lastVersion);
-      vi.mocked(mockThoughtVersionRepository.create).mockResolvedValue(
-        newVersion
-      );
-      vi.mocked(mockGenerateAiSummary).mockRejectedValue(
-        new Error("AI service error")
-      );
-      vi.mocked(mockThoughtVersionRepository.update).mockImplementation(
-        async (_, updateData) => ({
-          ...newVersion,
-          ...updateData,
-          aiSummaryStatus:
-            updateData.aiSummaryStatus ?? newVersion.aiSummaryStatus,
-          aiSummaryErrorMessage:
-            updateData.aiSummaryErrorMessage !== undefined
-              ? updateData.aiSummaryErrorMessage
-              : newVersion.aiSummaryErrorMessage,
-        })
-      );
+        mockThoughtVersionCreationRepository.createWithDiffAndAiSummaryOutbox
+      ).mockResolvedValue({
+        thoughtVersion: newVersion,
+        thoughtDiffId: "diff-1",
+      });
 
       const result = await thoughtVersionService.create(thoughtId, data);
 
-      expect(result.aiSummaryStatus).toBe(AiSummaryStatus.FAILED);
-      expect(result.aiSummaryErrorMessage).toBe(
-        "AI summary generation failed"
-      );
-      expect(mockThoughtDiffRepository.create).toHaveBeenCalled();
-      expect(mockGenerateAiSummary).toHaveBeenCalled();
-      expect(mockThoughtVersionRepository.update).toHaveBeenNthCalledWith(
-        1,
-        newVersion.id,
-        {
-          aiSummaryStatus: AiSummaryStatus.PROCESSING,
-          aiSummaryErrorMessage: null,
-        }
-      );
-      expect(mockThoughtVersionRepository.update).toHaveBeenNthCalledWith(
-        2,
-        newVersion.id,
-        {
-          aiSummaryStatus: AiSummaryStatus.FAILED,
-          aiSummaryErrorMessage: "AI summary generation failed",
-        }
-      );
+      expect(result).toEqual(newVersion);
+      expect(result.aiSummaryStatus).toBe(AiSummaryStatus.PENDING);
+      expect(
+        mockThoughtVersionCreationRepository.createWithDiffAndAiSummaryOutbox
+      ).toHaveBeenCalledWith({
+        thoughtId,
+        content: data.content,
+        fromVersionId: lastVersion.id,
+        addedWords: expect.any(Array),
+        removedWords: expect.any(Array),
+        metrics: expect.objectContaining({
+          addedWordsCount: expect.any(Number),
+          removedWordsCount: expect.any(Number),
+          totalChanges: expect.any(Number),
+        }),
+      });
+      expect(mockThoughtVersionRepository.create).not.toHaveBeenCalled();
+      expect(mockThoughtDiffRepository.create).not.toHaveBeenCalled();
     });
   });
 
@@ -352,7 +261,7 @@ describe("ThoughtVersionService", () => {
 
       expect(result).toEqual(v);
       expect(mockThoughtDiffRepository.findByToVersionId).not.toHaveBeenCalled();
-      expect(mockGenerateAiSummary).not.toHaveBeenCalled();
+      expect(mockAiSummaryJobPublisher.enqueue).not.toHaveBeenCalled();
     });
 
     it("throws 422 when NOT_APPLICABLE", async () => {
@@ -432,7 +341,7 @@ describe("ThoughtVersionService", () => {
       });
     });
 
-    it("regenerates summary when diff exists", async () => {
+    it("enqueues AI summary retry when diff exists", async () => {
       const diffRow: ThoughtDiff = {
         id: "diff-1",
         fromVersionId: "v-from",
@@ -453,15 +362,22 @@ describe("ThoughtVersionService", () => {
         content: "new text",
         aiSummaryStatus: AiSummaryStatus.FAILED,
       });
+      const afterReset = versionBase({
+        ...target,
+        aiSummaryStatus: AiSummaryStatus.PENDING,
+        aiSummaryErrorMessage: null,
+      });
 
       vi.mocked(mockThoughtRepository.findById).mockResolvedValue(thought);
+      let vTargetReads = 0;
       vi.mocked(mockThoughtVersionRepository.findById).mockImplementation(
         async (id: string) => {
-          if (id === "v-target") {
-            return target;
-          }
           if (id === "v-from") {
             return fromV;
+          }
+          if (id === "v-target") {
+            vTargetReads += 1;
+            return vTargetReads === 1 ? target : afterReset;
           }
           return null;
         }
@@ -469,22 +385,8 @@ describe("ThoughtVersionService", () => {
       vi.mocked(mockThoughtDiffRepository.findByToVersionId).mockResolvedValue([
         diffRow,
       ]);
-      vi.mocked(mockGenerateAiSummary).mockResolvedValue("retried summary");
-      vi.mocked(mockThoughtVersionRepository.update).mockImplementation(
-        async (_, updateData) => ({
-          ...target,
-          ...updateData,
-          aiSummary:
-            updateData.aiSummary !== undefined
-              ? updateData.aiSummary
-              : target.aiSummary,
-          aiSummaryStatus:
-            updateData.aiSummaryStatus ?? target.aiSummaryStatus,
-          aiSummaryErrorMessage:
-            updateData.aiSummaryErrorMessage !== undefined
-              ? updateData.aiSummaryErrorMessage
-              : target.aiSummaryErrorMessage,
-        })
+      vi.mocked(mockThoughtVersionRepository.update).mockResolvedValue(
+        afterReset
       );
 
       const result = await thoughtVersionService.retryAiSummary(
@@ -492,15 +394,88 @@ describe("ThoughtVersionService", () => {
         "v-target"
       );
 
-      expect(mockGenerateAiSummary).toHaveBeenCalledWith(
-        "old text",
-        "new text",
-        ["x"],
-        ["y"],
-        diffRow.metrics
+      expect(mockThoughtVersionRepository.update).toHaveBeenCalledWith(
+        "v-target",
+        {
+          aiSummaryStatus: AiSummaryStatus.PENDING,
+          aiSummaryErrorMessage: null,
+        }
       );
-      expect(result.aiSummary).toBe("retried summary");
-      expect(result.aiSummaryStatus).toBe(AiSummaryStatus.COMPLETED);
+      expect(mockAiSummaryJobPublisher.enqueue).toHaveBeenCalledWith({
+        thoughtId,
+        thoughtVersionId: "v-target",
+        diffId: "diff-1",
+        intent: "manual",
+      });
+      expect(result.aiSummaryStatus).toBe(AiSummaryStatus.PENDING);
+    });
+
+    it("throws 422 when version is PROCESSING", async () => {
+      vi.mocked(mockThoughtRepository.findById).mockResolvedValue(thought);
+      vi.mocked(mockThoughtVersionRepository.findById).mockResolvedValue(
+        versionBase({
+          id: "v-proc",
+          thoughtId,
+          aiSummaryStatus: AiSummaryStatus.PROCESSING,
+        })
+      );
+
+      await expect(
+        thoughtVersionService.retryAiSummary(thoughtId, "v-proc")
+      ).rejects.toMatchObject({
+        code: ErrorCode.UNPROCESSABLE_ENTITY,
+      });
+      expect(mockAiSummaryJobPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it("enqueues retry for PENDING without resetting status", async () => {
+      const diffRow: ThoughtDiff = {
+        id: "diff-2",
+        fromVersionId: "v-from",
+        toVersionId: "v-wait",
+        addedWords: [],
+        removedWords: [],
+        metrics: {},
+        createdAt: new Date(),
+      };
+      const pending = versionBase({
+        id: "v-wait",
+        thoughtId,
+        aiSummaryStatus: AiSummaryStatus.PENDING,
+      });
+      vi.mocked(mockThoughtRepository.findById).mockResolvedValue(thought);
+      vi.mocked(mockThoughtVersionRepository.findById).mockImplementation(
+        async (id: string) => {
+          if (id === "v-wait") {
+            return pending;
+          }
+          if (id === "v-from") {
+            return versionBase({
+              id: "v-from",
+              thoughtId,
+              content: "old",
+            });
+          }
+          return null;
+        }
+      );
+      vi.mocked(mockThoughtDiffRepository.findByToVersionId).mockResolvedValue([
+        diffRow,
+      ]);
+
+      const result = await thoughtVersionService.retryAiSummary(
+        thoughtId,
+        "v-wait"
+      );
+
+      expect(mockThoughtVersionRepository.update).not.toHaveBeenCalled();
+      expect(mockAiSummaryJobPublisher.enqueue).toHaveBeenCalledWith({
+        thoughtId,
+        thoughtVersionId: "v-wait",
+        diffId: "diff-2",
+        intent: "manual",
+      });
+      expect(result).toEqual(pending);
     });
   });
 
