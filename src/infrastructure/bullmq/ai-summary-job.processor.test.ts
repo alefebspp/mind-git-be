@@ -187,7 +187,7 @@ describe("processAiSummaryJob", () => {
 });
 
 describe("markAiSummaryFailedAfterRetries", () => {
-  it("promotes PENDING to FAILED", async () => {
+  it("promotes PENDING or PROCESSING to FAILED", async () => {
     const mockVersionRepo = {
       updateIfAiSummaryStatusIn: vi.fn().mockResolvedValue({}),
     } as unknown as ThoughtVersionRepository;
@@ -209,7 +209,7 @@ describe("markAiSummaryFailedAfterRetries", () => {
 
     expect(mockVersionRepo.updateIfAiSummaryStatusIn).toHaveBeenCalledWith(
       "v-1",
-      [AiSummaryStatus.PENDING],
+      [AiSummaryStatus.PENDING, AiSummaryStatus.PROCESSING],
       expect.objectContaining({
         aiSummaryStatus: AiSummaryStatus.FAILED,
         aiSummaryErrorMessage: "exhausted",

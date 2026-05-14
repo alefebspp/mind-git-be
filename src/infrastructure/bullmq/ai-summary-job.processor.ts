@@ -144,7 +144,11 @@ async function markFailedProcessing(
   );
 }
 
-/** When BullMQ exhausts retries, promote PENDING (post-revert) to FAILED. */
+/**
+ * When BullMQ exhausts retries, persist a terminal failure.
+ * Includes PROCESSING so a worker that died after claiming does not leave the
+ * version stuck forever (retries only see PROCESSING and never revert to PENDING).
+ */
 export async function markAiSummaryFailedAfterRetries(
   deps: AiSummaryJobProcessorDeps,
   data: AiSummaryJobData,
@@ -152,7 +156,7 @@ export async function markAiSummaryFailedAfterRetries(
 ): Promise<void> {
   await deps.thoughtVersionRepository.updateIfAiSummaryStatusIn(
     data.thoughtVersionId,
-    [AiSummaryStatus.PENDING],
+    [AiSummaryStatus.PENDING, AiSummaryStatus.PROCESSING],
     {
       aiSummaryStatus: AiSummaryStatus.FAILED,
       aiSummaryErrorMessage: errorMessage,
