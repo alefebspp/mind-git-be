@@ -53,9 +53,9 @@ export class PrismaThoughtVersionCreationRepository
         data: {
           fromVersionId: input.fromVersionId,
           toVersionId: thoughtVersion.id,
-          addedWords: input.addedWords,
-          removedWords: input.removedWords,
-          metrics: input.metrics as Prisma.InputJsonValue,
+          addedWords: input.versionDelta.addedWords,
+          removedWords: input.versionDelta.removedWords,
+          metrics: input.versionDelta.metrics as Prisma.InputJsonValue,
         },
       });
 

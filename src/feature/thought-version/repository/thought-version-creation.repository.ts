@@ -1,12 +1,11 @@
+import type { VersionDelta } from "@/feature/thought-diff/version-delta";
 import { ThoughtVersion } from "@/feature/thought-version/thought-version.model";
 
 export type CreateThoughtVersionWithDiffAndOutboxInput = {
   thoughtId: string;
   content: string;
   fromVersionId: string;
-  addedWords: string[];
-  removedWords: string[];
-  metrics: Record<string, unknown>;
+  versionDelta: VersionDelta;
 };
 
 export type CreateThoughtVersionWithDiffAndOutboxResult = {

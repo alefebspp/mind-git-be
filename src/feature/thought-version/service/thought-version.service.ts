@@ -1,4 +1,4 @@
-import { diffWords } from "diff";
+import { computeVersionDelta } from "@/feature/thought-diff/version-delta";
 import {
   AiSummaryStatus,
   ThoughtVersion,
@@ -68,26 +68,10 @@ export class ThoughtVersionService {
       });
     }
 
-    const wordDiff = diffWords(lastVersion.content, data.content);
-
-    const addedWords: string[] = [];
-    const removedWords: string[] = [];
-
-    wordDiff.forEach((part) => {
-      if (part.added) {
-        const words = part.value.split(/\s+/).filter((word) => word.length > 0);
-        addedWords.push(...words);
-      } else if (part.removed) {
-        const words = part.value.split(/\s+/).filter((word) => word.length > 0);
-        removedWords.push(...words);
-      }
-    });
-
-    const metrics = {
-      addedWordsCount: addedWords.length,
-      removedWordsCount: removedWords.length,
-      totalChanges: addedWords.length + removedWords.length,
-    };
+    const versionDelta = computeVersionDelta(
+      lastVersion.content,
+      data.content
+    );
 
     const { thoughtVersion } =
       await this.thoughtVersionCreationRepository.createWithDiffAndAiSummaryOutbox(
@@ -95,9 +79,7 @@ export class ThoughtVersionService {
           thoughtId,
           content: data.content,
           fromVersionId: lastVersion.id,
-          addedWords,
-          removedWords,
-          metrics,
+          versionDelta,
         }
       );
 
