@@ -197,12 +197,14 @@ describe("ThoughtVersionService", () => {
         thoughtId,
         content: data.content,
         fromVersionId: lastVersion.id,
-        addedWords: expect.any(Array),
-        removedWords: expect.any(Array),
-        metrics: expect.objectContaining({
-          addedWordsCount: expect.any(Number),
-          removedWordsCount: expect.any(Number),
-          totalChanges: expect.any(Number),
+        versionDelta: expect.objectContaining({
+          addedWords: expect.any(Array),
+          removedWords: expect.any(Array),
+          metrics: expect.objectContaining({
+            addedWordsCount: expect.any(Number),
+            removedWordsCount: expect.any(Number),
+            totalChanges: expect.any(Number),
+          }),
         }),
       });
       expect(mockThoughtVersionRepository.create).not.toHaveBeenCalled();

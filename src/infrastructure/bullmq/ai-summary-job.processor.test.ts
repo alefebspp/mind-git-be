@@ -169,10 +169,13 @@ describe("processAiSummaryJob", () => {
     );
   });
 
-  it("throws UnrecoverableError for NOT_APPLICABLE", async () => {
+  it.each([
+    AiSummaryStatus.NOT_APPLICABLE,
+    AiSummaryStatus.PROCESSING,
+  ])("throws UnrecoverableError for %s", async (status) => {
     vi.mocked(mockVersionRepo.findById).mockResolvedValue({
       ...pendingTarget,
-      aiSummaryStatus: AiSummaryStatus.NOT_APPLICABLE,
+      aiSummaryStatus: status,
     });
 
     await expect(

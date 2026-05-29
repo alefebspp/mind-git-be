@@ -1,4 +1,4 @@
-import { diffWords } from "diff";
+import { computeVersionDelta } from "@/feature/thought-diff/version-delta";
 import {
   AiSummaryStatus,
   ThoughtVersion,
@@ -14,6 +14,8 @@ import { ThoughtRepository } from "@/feature/thought/repository/thought.reposito
 import { AppError } from "@/common/errors/app-error";
 import type { ThoughtVersionCreationRepository } from "@/feature/thought-version/repository/thought-version-creation.repository";
 import type { AiSummaryJobPublisher } from "@/infrastructure/bullmq/ai-summary-job.publisher";
+import { isAiSummaryLifecycleError } from "@/feature/thought-version/service/ai-summary-lifecycle.errors";
+import { prepareManualAiSummaryRetry } from "@/feature/thought-version/service/ai-summary-lifecycle";
 
 export class ThoughtVersionService {
   constructor(
@@ -66,26 +68,10 @@ export class ThoughtVersionService {
       });
     }
 
-    const wordDiff = diffWords(lastVersion.content, data.content);
-
-    const addedWords: string[] = [];
-    const removedWords: string[] = [];
-
-    wordDiff.forEach((part) => {
-      if (part.added) {
-        const words = part.value.split(/\s+/).filter((word) => word.length > 0);
-        addedWords.push(...words);
-      } else if (part.removed) {
-        const words = part.value.split(/\s+/).filter((word) => word.length > 0);
-        removedWords.push(...words);
-      }
-    });
-
-    const metrics = {
-      addedWordsCount: addedWords.length,
-      removedWordsCount: removedWords.length,
-      totalChanges: addedWords.length + removedWords.length,
-    };
+    const versionDelta = computeVersionDelta(
+      lastVersion.content,
+      data.content
+    );
 
     const { thoughtVersion } =
       await this.thoughtVersionCreationRepository.createWithDiffAndAiSummaryOutbox(
@@ -93,9 +79,7 @@ export class ThoughtVersionService {
           thoughtId,
           content: data.content,
           fromVersionId: lastVersion.id,
-          addedWords,
-          removedWords,
-          metrics,
+          versionDelta,
         }
       );
 
@@ -116,56 +100,28 @@ export class ThoughtVersionService {
       throw AppError.notFound("Thought version not found");
     }
 
-    if (version.aiSummaryStatus === AiSummaryStatus.COMPLETED) {
-      return version;
-    }
-
-    if (version.aiSummaryStatus === AiSummaryStatus.NOT_APPLICABLE) {
-      throw AppError.unprocessableEntity(
-        "AI summary is not applicable for this version"
-      );
-    }
-
-    if (version.aiSummaryStatus === AiSummaryStatus.PROCESSING) {
-      throw AppError.unprocessableEntity(
-        "AI summary is already processing for this version"
-      );
-    }
-
-    const diffs =
-      await this.thoughtDiffRepository.findByToVersionId(versionId);
-    const diff = diffs[0];
-    if (!diff) {
-      throw AppError.unprocessableEntity(
-        "No diff recorded for this version; cannot regenerate AI summary"
-      );
-    }
-
-    const fromVersion = await this.thoughtVersionRepository.findById(
-      diff.fromVersionId
-    );
-    if (!fromVersion) {
-      throw AppError.unprocessableEntity(
-        "Source version for diff is missing; cannot regenerate AI summary"
-      );
-    }
-
-    if (version.aiSummaryStatus === AiSummaryStatus.FAILED) {
-      await this.thoughtVersionRepository.update(versionId, {
-        aiSummaryStatus: AiSummaryStatus.PENDING,
-        aiSummaryErrorMessage: null,
+    try {
+      const prepared = await prepareManualAiSummaryRetry({
+        thoughtId,
+        version,
+        thoughtVersionRepository: this.thoughtVersionRepository,
+        thoughtDiffRepository: this.thoughtDiffRepository,
       });
+
+      if (prepared.kind === "noop") {
+        return prepared.version;
+      }
+
+      await this.aiSummaryJobPublisher.enqueue(prepared.job);
+
+      const refreshed =
+        await this.thoughtVersionRepository.findById(versionId);
+      return refreshed ?? prepared.version;
+    } catch (error) {
+      if (isAiSummaryLifecycleError(error)) {
+        throw AppError.unprocessableEntity(error.message);
+      }
+      throw error;
     }
-
-    await this.aiSummaryJobPublisher.enqueue({
-      thoughtId,
-      thoughtVersionId: versionId,
-      diffId: diff.id,
-      intent: "manual",
-    });
-
-    const refreshed =
-      await this.thoughtVersionRepository.findById(versionId);
-    return refreshed!;
   }
 }
